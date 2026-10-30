@@ -1,0 +1,18 @@
+
+NVCC = nvcc
+INCLUDES = -I./include
+NVCCFLAGS = -m64 -O3 -arch=sm_61 $(INCLUDES)
+
+
+SOURCES = src/main.cu src/kernel.cu src/common.cu
+TARGET = state_vector_simulator.exe
+
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCES)
+	$(NVCC) $(NVCCFLAGS) $(SOURCES) -o $(TARGET)
+
+
+clean:
+	del $(TARGET) *.exp *.lib

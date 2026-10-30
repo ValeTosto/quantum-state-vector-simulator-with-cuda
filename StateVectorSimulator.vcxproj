@@ -11,14 +11,17 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="common.cu" />
-    <CudaCompile Include="kernel.cu" />
-    <CudaCompile Include="main.cu" />
+    <CudaCompile Include="src\common.cu" />
+    <CudaCompile Include="src\kernel.cu" />
+    <CudaCompile Include="src\main.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="common.h" />
-    <ClInclude Include="gates.h" />
-    <ClInclude Include="kernels.cuh" />
+    <ClInclude Include="include\common.h" />
+    <ClInclude Include="include\gates.h" />
+    <ClInclude Include="include\kernels.cuh" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="MakeFile" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{EB419962-D480-C2F0-C86F-7EAAF39B77AB}</ProjectGuid>
@@ -51,6 +54,10 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>$(ProjectDir)include;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>$(ProjectDir)include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -65,6 +72,7 @@
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <Include>$(ProjectDir)include;%(Include)</Include>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -84,6 +92,7 @@
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <Include>$(ProjectDir)include;%(Include)</Include>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
