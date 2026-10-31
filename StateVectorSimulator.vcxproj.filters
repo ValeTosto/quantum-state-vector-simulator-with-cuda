@@ -11,6 +11,10 @@
     <ClInclude Include="include\kernels.cuh" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="MakeFile" />
+    <None Include="Makefile" />
+    <None Include="docs\report.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="to_do.txt" />
   </ItemGroup>
 </Project>

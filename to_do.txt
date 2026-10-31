@@ -1,0 +1,4 @@
+Nel report:
+implementare varianti di ogni funzione.
+misurare i tempi di ogni funzione e varianti.
+implementare il calcolo del throughput dei singoli step dei kernel non imbarazzantemente paralleli.
