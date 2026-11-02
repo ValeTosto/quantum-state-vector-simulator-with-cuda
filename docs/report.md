@@ -6,7 +6,7 @@ Lo scopo della seguente relazione e' quello di documentare lo sviluppo di un sim
 realizzato con l'idea di sfruttare una GPU per la parallelizzazione del codice, puntando alle migliori performance possibili.
 Il simulatore e' stato sviluppato in CUDA C++, con hardware di riferimento NVIDIA GTX 1080.
 
-## **Introduzione al Quantum Computing**
+# **Introduzione al Quantum Computing**
 
 Il Quantum Computing e' una branca dell'informatica in rapida crescita, basata sull'idea di sfruttare la **meccanica quantistica** per ottenere vantaggi computazionali.  
 Vi sono due principi fisici che caratterizzano la meccanica quantistica:  
@@ -20,6 +20,8 @@ La meccanica quantistica viene modellata perfettamente tramite l'algebra lineare
 - Un operatore logico quantistico e' una matrice unitaria $U$. Un operatore $n$-ario e' una matrice quadrata di dimensioni $2^n\times2^n$. L'applicazione di un operatore sui rispettivi qubit viene calcolata tramite un semplice prodotto riga-colonna;
 - La misurazione e' una proiezione su una base: in computazione quantistica essa corrisponde alla base computazionale { $\ket0, \ket1$}.
 
+# **Implementazione**
+
 ## **Il modello State Vector e il problema esponenziale**  
 
 L'approccio *State Vector* per la simulazione quantistica consiste nel mantenere in memoria l'intero vettore di stato e aggiornarlo passo dopo passo applicando i vari gate quantistici del circuito.
@@ -32,8 +34,28 @@ Utilizzando numeri in virgola mobile (4 byte per la parte reale e 4 byte per que
 
 Oltre i 30 qubit, la simulazione State Vector diventa proibitiva per i normali calcolatori. La natura dell'approccio, che prevede la manipolazione di un unico pesante vettore, si dimostra subito adeguata all'accelerazione parallela tramite GPU.
 
-# **2. Implementazione e Architettura CUDA**
+## **Flusso di esecuzione**
 
-## Rappresentazione dei Dati in Memoria
-Per mappare il problema sull'architettura NVIDIA Pascal (GTX 1080), il vettore di stato è stato... *(qui spieghi come hai gestito i numeri complessi e l'allocazione)*
+Il simulatore consiste in una pipeline sequenziale in cui l'host costruisce il circuito, mentre il device esegue soltanto i calcoli sul vettore di stato. Per evitare il bottleneck relativo all'uso del bus di sistema, il vettore viene allocato e modificato sempre e solo nella VRAM del device. Il flusso di esecuzione del programma e' il seguente:  
+1. **Inizializzazione**: viene allocato il vettore di 2$^N$ numeri complessi (coppie di float), con lo stato di partenza $\ket0^{\otimes n}$;  
+2. **Applicazione dei gate**: corrisponde alla costruzione del circuito. La CPU chiama i kernel relativi all'applicazione di un gate specifico, mentre il device aggiorna in VRAM il vettore di stato opportunamente. L'idea e' quella di introdurre la possibilita' di implementare un set di gate universale, composto da (X, CNOT, Toffoli);
+3. **Misurazione**: A questo punto i qubit del vettore di stato possono essere misurati e il risultato trasferito su host.
+
+In aggiunta, come metodo di verifica della correttezza dei calcoli, in qualunque momento sara' possibile calcolare la norma del vettore di stato e verificare che sia costantemente unitaria.
+
+# **Analisi dei kernel**
+
+## **Inizializzazione**
+Per inizializzare il vettore di stato, l'host chiama la funzione `cudaMalloc` e alloca $2^{QBITS}$ coppie di float in VRAM. La certezza assoluta che la grandezza della griglia di lancio sia una potenza di 2 non va sottovalutata: sarebbe tecnicamente possibile evitare la presenza di controlli relativi all'accesso out of bounds all'interno dei kernel.  
+Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $N$, dove ogni componente vale 0 tranne la prima che vale 1. Per l'implementazione sono stati valutati due approcci:  
+1. Approccio a singolo Kernel: viene lasciato un unico kernel, dove ogni work item imposta a 0 l'elemento corrispondente ad eccezione per quello in cui `global_id==0`, che lo imposta ad 1;
+2. Approccio tramite funzioni native: Si imposta l'intero vettore a 0 tramite la funzione nativa `cudaMemset`, ottimizzata per lo specifico hardware, seguita da un `cudaMemCpy` che imposta il primo elemento a 1.
+
+### **Analisi delle metriche**
+1. Versione a singolo kernel:
+
+| Funzione | Tempo medio | Larghezza di Banda | Throughput |
+| :--- | :--- | :--- | :--- |
+| **Singolo Kernel** | 8.974 ms | 239.3 GB/s | 29.91 GE/s |
+| **Funzioni Native** | 8.974 ms | 239.3 GB/s | 29.91 GE/s |
 
