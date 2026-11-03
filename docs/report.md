@@ -51,11 +51,27 @@ Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $
 1. Approccio a singolo Kernel: viene lasciato un unico kernel, dove ogni work item imposta a 0 l'elemento corrispondente ad eccezione per quello in cui `global_id==0`, che lo imposta ad 1;
 2. Approccio tramite funzioni native: Si imposta l'intero vettore a 0 tramite la funzione nativa `cudaMemset`, ottimizzata per lo specifico hardware, seguita da un `cudaMemCpy` che imposta il primo elemento a 1.
 
-### **Analisi delle metriche**
-1. Versione a singolo kernel:
+### **Analisi delle performance**
+1. Versione a singolo kernel su :
 
 | Funzione | Tempo medio | Larghezza di Banda | Throughput |
 | :--- | :--- | :--- | :--- |
 | **Singolo Kernel** | 8.974 ms | 239.3 GB/s | 29.91 GE/s |
-| **Funzioni Native** | 8.974 ms | 239.3 GB/s | 29.91 GE/s |
+| **Funzioni Native** | 8.924 ms |  240.6 GB/s | 30.08 GE/s |
 
+In conclusione, le due implementazioni portano a prestazioni identiche, per cui verra' mantenuta la seconda implementazione.  
+
+## **Applicazione di gate unari**
+
+L'operazione fondamentale del simulatore è l'applicazione di un gate unario su un singolo qubit bersaglio $k$. Questa operazione modifica l'intero vettore di stato, e il valore di ogni ampiezza e' indipendente dalle altre: si tratta di un'operazione imbarazzantemente parallelizzabile.
+
+Dato che il gate unario lavora su un singolo qubit, il singolo work item lavora su una coppia di ampiezze di indice $p_0$ e $p_1$, identici a meno del $k$-esimo bit. 
+Il kernel lancera' quindi $N/2$ work item per la parallelizzazione del calcolo.
+
+Per passare dall'id globale alla coppia di id, la logica e' quella di "spezzare" in due l'id globale in corrispondenza del $k$-esimo bit e inserire tra le due meta' il valore 0 per $p_0$ e 1 per $p_1$. Questi calcoli sono stati implementati tramite logica bitwise per massimizzare le prestazioni.
+
+Calcolati i due indici, bastera' trattare `state[p_0]` e `state[p_1]` come ampiezze del qubit da aggiornare, applicarvi il gate tramite prodotto riga-colonna, e infine aggiornare il vettore di stato con i due nuovi valori calcolati.
+
+### Analisi delle Prestazioni
+
+Il kernel `apply_u_gate` richiede la lettura e la scrittura dell'intero vettore di stato per ogni applicazione di un gate, movimentando un totale di `sizeof(complex)*N` byte, ovvero $16 \times N$ bytes.
