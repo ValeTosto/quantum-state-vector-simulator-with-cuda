@@ -46,7 +46,7 @@ In aggiunta, come metodo di verifica della correttezza dei calcoli, in qualunque
 
 # **Analisi dei kernel**
 
-## **Inizializzazione**
+# **Inizializzazione**
 Per inizializzare il vettore di stato, l'host chiama la funzione `cudaMalloc` e alloca $2^{QBITS}$ coppie di float in VRAM. La certezza assoluta che la grandezza della griglia di lancio sia una potenza di 2 non va sottovalutata: sarebbe tecnicamente possibile evitare la presenza di controlli relativi all'accesso out of bounds all'interno dei kernel.  
 Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $N$, dove ogni componente vale 0 tranne la prima che vale 1. Per l'implementazione sono stati valutati due approcci:  
 1. Approccio a singolo Kernel: viene lasciato un unico kernel, dove ogni work item imposta a 0 l'elemento corrispondente ad eccezione per quello in cui `global_id==0`, che lo imposta ad 1;
@@ -64,7 +64,7 @@ Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $
 
 In conclusione, le due implementazioni portano a prestazioni identiche, per cui verra' mantenuta la seconda implementazione.  
 
-## **Applicazione di gate unari**
+# **Applicazione di gate unari**
 
 L'operazione fondamentale del simulatore è l'applicazione di un gate unario su un singolo qubit bersaglio $k$. Questa operazione modifica l'intero vettore di stato, e il valore di ogni ampiezza e' indipendente dalle altre: si tratta di un'operazione imbarazzantemente parallelizzabile. Il kernel permettera' l'implementazione dei gate *Hadamard* ($H$) e *Pauli-x* ($X$).
 
@@ -116,7 +116,7 @@ L'aspetto piu' interessante da analizzare sono ancora una volta i valori `target
 
 Le performance restano generalmente costanti.  
 
-## **Applicazione di gate ternari**  
+# **Applicazione di gate ternari**  
 
 L'ultima tipologia di gate applicabile implementata nel simulatore e' quella dei gate ternari. Principalmente questo permette di utilizzare il *Toffoli Gate* (o CCNOT) ovvero un NOT condizionato con doppio controllo.
 
@@ -143,7 +143,7 @@ Questi risultati anomali mettono in luce un problema molto specifico: quando il 
 Con il crescere delle dimensioni dei gate applicati, lo stride cresce e questa anomalia si fa piu' evidente e frequente. Fortunatamente, il problema sorge in maniera significativa soltanto quando si lavora esattamente con tutti i primi qubit della stringa.  
 Inoltre, si suppone che nei casi di gate unario e binario il problema sia stato mascherato dall'alta efficienza della cache, e che invece l'aggiunta del terzo qubit l'abbia portata al limite.
 
-## **Calcolo della Norma**
+# **Calcolo della Norma**
 
 Il calcolo della norma del vettore si suddivide in due fasi:
 1. Il calcolo dei quadrati dei moduli delle ampiezze, ovvero delle probabilita' associate ad ogni possibile stato;
@@ -164,4 +164,33 @@ Per confrontare l'efficienza del kernel sono stati implementate anche le version
 | sum_16 |  51.79 ms | 10.37 GE/s |
 | sum_16_lmem | 8.873 ms | 60.51 GE/s |
 
-## **Misurazione**
+
+
+# **Misurazione**
+
+L'ultima funzionalita' necessaria per avere un simulatore utilizzabile e' la misurazione di un qubit. Secondo i postulati della meccanica quantistica, la misurazione provoca un collasso del vettore di stato, azzerando totalmente le ampiezze relative agli stati incompatibili con il risultato misurato e richiedendo una successiva rinormalizzazione delle ampiezze rimaste integre. Calcolare la probabilita' di collasso in $\ket0$ o in $\ket1$ per il singolo qubit bersaglio a partire dall'intero vettore di stato, bisogna sommare tutte le ampiezze di probabilita' per cui quel qubit assume valore 0. 
+
+L'operazione è stata implementata con un approccio ibrido in tre fasi:
+1. Calcolo delle probabilita' di collasso $p_0$ e $p_1$: si tratta di una somma di $N/2$ elementi (non imbarazzantemente parallelizzabile);
+2. Decisione casuale del collasso: l'estrazione di un numero casuale e la determinazione dell'outcome vengono eseguite dall'host;
+3. Azzeramento delle ampiezze incompatibili e rinormalizzazione del vettore di stato: il calcolo su ogni elemento e' indipendente dagli altri (imbarazzantemente parallelizzabile);
+
+Per il primo passo, e' stata implementata una versione lievemente modificata del kernel di somma precedentemente analizzato, che esegue la somma soltanto per gli elementi in cui il qubit target assume valore 0.
+
+Dopo aver estratto casualmente l'outcome, il risultato viene fornito al secondo kernel, che in parallelo aggiorna tutti gli elementi del vettore di stato:  
+- se nell'indice globale il qubit bersaglio ha valore pari a quello misurato, l'ampiezza va moltiplicata per un fattore di normalizzazione;
+- se nell'indice globale il qubit bersagio ha valore opposto a quello misurato, l'ampiezza viene completamente azzerata.
+
+### **Analisi delle Prestazioni**  
+
+Kernel di collasso:
+
+| Qubit bersaglio | Tempo collasso | Throughput |
+| :--- | :--- | :--- | :--- |
+| 0 |   19.06 ms |  28.16 GE / s | 
+| 15 |  43.11 ms | 199.3 GB/s  | 
+| 28 | 41.09 ms | 209.1 GB/s | 
+
+
+
+
