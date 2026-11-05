@@ -164,8 +164,6 @@ Per confrontare l'efficienza del kernel sono stati implementate anche le version
 | sum_16 |  51.79 ms | 10.37 GE/s |
 | sum_16_lmem | 8.873 ms | 60.51 GE/s |
 
-
-
 # **Misurazione**
 
 L'ultima funzionalita' necessaria per avere un simulatore utilizzabile e' la misurazione di un qubit. Secondo i postulati della meccanica quantistica, la misurazione provoca un collasso del vettore di stato, azzerando totalmente le ampiezze relative agli stati incompatibili con il risultato misurato e richiedendo una successiva rinormalizzazione delle ampiezze rimaste integre. Calcolare la probabilita' di collasso in $\ket0$ o in $\ket1$ per il singolo qubit bersaglio a partire dall'intero vettore di stato, bisogna sommare tutte le ampiezze di probabilita' per cui quel qubit assume valore 0. 
@@ -185,11 +183,28 @@ Dopo aver estratto casualmente l'outcome, il risultato viene fornito al secondo 
 
 Kernel di collasso:
 
-| Qubit bersaglio | Tempo collasso | Throughput |
-| :--- | :--- | :--- | :--- |
-| 0 |   19.06 ms |  28.16 GE / s | 
-| 15 |  43.11 ms | 199.3 GB/s  | 
-| 28 | 41.09 ms | 209.1 GB/s | 
+| Qubit bersaglio | Tempo | Throughput |
+| :--- | :--- | :--- |
+| 0 | 18.45 ms | 29.1 GE/s | 
+| 1 | 18.47 ms | 29.06 GE/s |
+| 2 | 9.439 ms | 56.88 GE/s |
+| 14 | 9.581 ms | 56.04 GE/s | 
+| 28 | 10.63 ms | 50.53 GE/s | 
+
+Kernel di rinormalizzazione:
+
+| Qubit bersaglio | Tempo | Bandwidth| Throughput |
+| :--- | :--- | :--- | :--- | :--- |
+| 0 | 36.76 ms | 175.3 GB/s | 14.61 GE/s |
+| 1 | 36.75 ms | 175.3 GB/s | 14.61 GE/s |
+| 2 | 28.37 ms | 227.1 GB/s | 18.93 GE/s | 
+| 14 | 27.98 ms | 230.2 GB/s | 19.18 GE/s |
+| 28 | 27.18 ms | 237 GB/s | 19.75 GE/s |
+
+Quando si misurano esattamente i qubit 0 e 1, le performance peggiorano notevolmente, specialmente per quanto riguarda il kernel di collasso. Ancora una volta questo comportamento e' dovuto al pattern di posizionamento delle ampiezze: per valori cosi' bassi, gli elementi a cui i kernel accedono si alternano con frequenza molto alta, generando warp divergence. Se nel caso del secondo kernel si tratta di un comportamento inevitabile, potrebbe essere possibile rimuovere il branching dal kernel di collasso: invece di lanciare N thread, se ne lanciano $N/2$, e si modifica il global_id in modo tale che ogni thread acceda esclusivamente agli indirizzi corretti. Questo puo' essere facilmente ottenuto inserendo un bit 0 nell'id in posizione target, ma cio' va gestito in contemporanea alle logiche di accesso della vettorizzazione implementata.
+
+# **Conclusioni**
+I dati raccolti confermano che la simulazione quantistica State Vector è un problema computazionale memory bound a causa dell'aumento esponenziale dello spazio richiesto e dei tempi di esecuzione al crescere di $n$. Le alte capacita' di calcolo della GPU non sono sfruttabili per spingersi oltre i 29 qubit. Ad ogni modo, la simulazione quantistica si conferma un problema molto adatto alla parallelizzazione, viste le altissime performance misurate da ogni kernel della pipeline di calcolo.  
 
 
 
