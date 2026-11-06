@@ -45,17 +45,37 @@ Il simulatore consiste in una pipeline sequenziale in cui l'host costruisce il c
 In aggiunta, come metodo di verifica della correttezza dei calcoli, in qualunque momento sara' possibile calcolare la norma del vettore di stato e verificare che sia costantemente unitaria.
 
 # **Analisi dei kernel**
-
+Tutti i test di performance sono stati valutati su:
+-$LWS = 256$  
+-$QBITS = 29$
 # **Inizializzazione**
 Per inizializzare il vettore di stato, l'host chiama la funzione `cudaMalloc` e alloca $2^{QBITS}$ coppie di float in VRAM. La certezza assoluta che la grandezza della griglia di lancio sia una potenza di 2 non va sottovalutata: sarebbe tecnicamente possibile evitare la presenza di controlli relativi all'accesso out of bounds all'interno dei kernel.  
 Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $N$, dove ogni componente vale 0 tranne la prima che vale 1. Per l'implementazione sono stati valutati due approcci:  
 1. Approccio a singolo Kernel: viene lasciato un unico kernel, dove ogni work item imposta a 0 l'elemento corrispondente ad eccezione per quello in cui `global_id==0`, che lo imposta ad 1;
+```cu
+__global__ void init_state_k(complex_t* state, const size_t N)
+{
+	size_t i = threadIdx.x + (size_t)blockDim.x * blockIdx.x;
+	if (i == 0)
+		state[i] = complex_t(1.0f, 0.0f);
+	else if (i < N) {
+		state[i] = complex_t(0.0f, 0.0f);
+	}
+}
+```
+  
 2. Approccio tramite funzioni native: Si imposta l'intero vettore a 0 tramite la funzione nativa `cudaMemset`, ottimizzata per lo specifico hardware, seguita da un `cudaMemCpy` che imposta il primo elemento a 1.
 
-### **Analisi delle performance**
+```cu
+void init_state_native(complex_t *state, const size_t N)
+{
+	CHECK_CUDA(cudaMemset(state, 0, N * sizeof(complex_t)));
+	complex_t c1 = complex_t(1.0, 0.0);
+	CHECK_CUDA(cudaMemcpy(state, &c1, sizeof(complex_t), cudaMemcpyHostToDevice));
+}
+```
 
--$LWS = 256$  
--$QBITS = 29$
+### **Analisi delle performance**
 
 | Funzione | Tempo | Bandwidth | Throughput |
 | :--- | :--- | :--- | :--- |
@@ -74,6 +94,33 @@ Il kernel lancera' quindi $N/2$ work item per la parallelizzazione del calcolo.
 Per passare dall'id globale alla coppia di id, la logica e' quella di "spezzare" in due l'id globale in corrispondenza del $k$-esimo bit e inserire tra le due meta' il valore 0 per $p_0$ e 1 per $p_1$. Questo approccio e' particolarmente efficace perche' privo di branch condizionali e perche' permette la perfetta lettura dei dati dalla memoria in coalescenza.  
 
 Calcolati i due indici, bastera' trattare `state[p_0]` e `state[p_1]` come ampiezze del qubit da aggiornare, applicarvi il gate tramite prodotto riga-colonna, e infine aggiornare il vettore di stato con i due nuovi valori calcolati.
+
+```cu
+__global__ void apply_u_gate_k(complex_t* state, const size_t pairs, const size_t target_qubit,
+	const complex_t m00, const complex_t m01, const complex_t m10, const complex_t m11) {
+	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (i >= pairs) return;
+
+	size_t mask = (1ULL << target_qubit) - 1;
+
+	size_t lower = i & mask;
+
+	size_t upper = (i >> target_qubit) << (target_qubit + 1);
+
+	size_t p_0 = upper | lower;
+	size_t p_1 = p_0 | (1ULL << target_qubit);
+
+	complex_t v0 = state[p_0];
+	complex_t v1 = state[p_1];
+
+	complex_t new_v0 = v0 * m00 + v1 * m01;
+	complex_t new_v1 = v0 * m10 + v1 * m11;
+
+	state[p_0] = new_v0;
+	state[p_1] = new_v1;
+}
+```
 
 ### **Analisi delle Prestazioni**
 
@@ -100,6 +147,39 @@ La sfida algoritmica principale consiste nell'estendere la logica di indicizzazi
 Analogamente al caso unario, l'id globale viene modificato con l'aggiunta di bit nelle posizioni opportune, quindi due bit in posizioni `control_qubit` e `target_qubit`: per ottenere i quattro indici basta inserire tutte le configurazioni dei 2 bit.  
 
 Calcolati i quattro indirizzi, il work item legge le relative ampiezze, moltiplica il vettore ottenuto con la matrice $4x4$ che rappresenta il gate, e sovrascrive i risultati. 
+
+__global__ void apply_bi_gate_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate) {
+	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (i >= quarts) return;
+
+	size_t qubit_low = min(target_qubit, control_qubit);
+	size_t qubit_high = max(target_qubit, control_qubit);
+
+	size_t mask_low = (1ULL << qubit_low) - 1;
+	size_t mask_high = (1ULL << qubit_high) - 1;
+	size_t _00_idx = (i & mask_low) | ((i & ~mask_low) << 1);
+	_00_idx = (_00_idx & mask_high) | ((_00_idx & ~mask_high) << 1);
+
+	size_t _01_idx = _00_idx | (1ULL << target_qubit);
+	size_t _10_idx = _00_idx | (1ULL << control_qubit);
+	size_t _11_idx = _00_idx | (1ULL << control_qubit) | (1ULL << target_qubit);
+
+	complex_t v00 = state[_00_idx];
+	complex_t v01 = state[_01_idx];
+	complex_t v10 = state[_10_idx];
+	complex_t v11 = state[_11_idx];
+
+	complex_t new_v00 = v00 * gate.matrix[0][0] + v01 * gate.matrix[0][1] + v10 * gate.matrix[0][2] + v11 * gate.matrix[0][3];
+	complex_t new_v01 = v00 * gate.matrix[1][0] + v01 * gate.matrix[1][1] + v10 * gate.matrix[1][2] + v11 * gate.matrix[1][3];
+	complex_t new_v10 = v00 * gate.matrix[2][0] + v01 * gate.matrix[2][1] + v10 * gate.matrix[2][2] + v11 * gate.matrix[2][3];
+	complex_t new_v11 = v00 * gate.matrix[3][0] + v01 * gate.matrix[3][1] + v10 * gate.matrix[3][2] + v11 * gate.matrix[3][3];
+
+	state[_00_idx] = new_v00;
+	state[_01_idx] = new_v01;
+	state[_10_idx] = new_v10;
+	state[_11_idx] = new_v11;
+}
 
 ### **Analisi delle Prestazioni**
 
@@ -151,8 +231,53 @@ Il calcolo della norma del vettore si suddivide in due fasi:
 
 Per il primo step basta implementare un kernel imbarazzantemente parallelo banale, che lancia $N$ work item, ognuno che calcola la norma del relativo elemento e la scrive in un vettore di `float` di appoggio.  
 
+```cu
+__global__ void sq_norm_k(complex_t* state, float* prob, const size_t N)
+{
+	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
+	if (i >= N) return;
+
+	complex_t c = state[i];
+	prob[i] = c.real() * c.real() + c.imag() * c.imag();
+}
+
+```
+
 Il secondo step invece e' un classico esempio di riduzione, un'operazione non imbarazzantemente parallelizzabbile. Il simulatore utilizza un'implementazione con vettorizzazione a 16 elementi e appoggio di local memory (o shared memory per CUDA), dove un'ulteriore step di riduzione viene effettuato dall'intero work group. Sebbene la somma tra float goda della proprieta' commutativa, esso **non gode della proprieta' associativa** in generale a cause di possibili arrotondamenti. Per fortuna, gli arrotondamenti si verificano soltanto quando la somma avviene tra due valori distanti diversi ordini di grandezza, scenario reso improbabile a causa della struttura ad albero delle riduzioni successive.
 Gli acessi in memoria vengono effettuati in coalescenza tramite Indirizzamento Sequenziale: ogni work item somma 16 elementi tutti a 16 elementi di distanza l'uno dall'altro.
+
+```cu
+__global__ void sum16_lmem_k(float* prob, const size_t currN)
+{
+	extern __shared__ float lmem[];
+
+	size_t start = (size_t)blockDim.x * blockIdx.x * 16;
+	size_t idx;
+
+	float sum = 0;
+
+	for (int j = 0; j < 16; j++) {
+		idx = start + j * blockDim.x + threadIdx.x;
+		if(idx < currN)
+			sum += prob[idx];
+	}
+
+	lmem[threadIdx.x] = sum;
+	
+	for (int j = blockDim.x / 2; j > 0; j /= 2) {
+		__syncthreads();
+		if (threadIdx.x < j) {
+			lmem[threadIdx.x] += lmem[threadIdx.x + j];
+		}
+	}
+
+	if (threadIdx.x == 0) {
+		prob[blockIdx.x] = lmem[0];
+	}
+
+}
+
+```
 
 ### **Analisi delle Prestazioni**
 Le prestazioni vengono misurate soltanto dal punto di vista del throughput, ovvero degli elementi elaborati al secondo.  
@@ -175,9 +300,115 @@ L'operazione è stata implementata con un approccio ibrido in tre fasi:
 
 Per il primo passo, e' stata implementata una versione lievemente modificata del kernel di somma precedentemente analizzato, che esegue la somma soltanto per gli elementi in cui il qubit target assume valore 0.
 
+```cu
+__global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_sums, const int target_qubit, const size_t npairs)
+{
+	extern __shared__ float lmem[];
+
+	size_t start = (size_t)blockDim.x * blockIdx.x * 16;
+
+	float sum = 0;
+	size_t i;
+
+	for (int j = 0; j < 16; j++) {
+		i = start + j * blockDim.x + threadIdx.x;
+
+		if (i < N) {
+			if (((i >> target_qubit) & 1) == 0) {
+				float r = state[i].real();
+				float im = state[i].imag();
+				sum += r * r + im * im;
+			}
+		}
+	}
+
+	lmem[threadIdx.x] = sum;
+
+	for (int j = blockDim.x / 2; j > 0; j /= 2) {
+		__syncthreads();
+		if (threadIdx.x < j) {
+			lmem[threadIdx.x] += lmem[threadIdx.x + j];
+		}
+	}
+
+	if (threadIdx.x == 0) {
+		temp_sums[blockIdx.x] = lmem[0];
+	}
+}
+```
+
 Dopo aver estratto casualmente l'outcome, il risultato viene fornito al secondo kernel, che in parallelo aggiorna tutti gli elementi del vettore di stato:  
 - se nell'indice globale il qubit bersaglio ha valore pari a quello misurato, l'ampiezza va moltiplicata per un fattore di normalizzazione;
 - se nell'indice globale il qubit bersagio ha valore opposto a quello misurato, l'ampiezza viene completamente azzerata.
+
+```cu
+__global__ void measure_renormalize_k(complex_t* state, const int target_qubit, const int measured, const float norm_factor, const size_t N)
+{
+	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (i < N) {
+		int target_bit = (i >> target_qubit) & 1;
+
+		if (target_bit == measured) {
+			float r = state[i].real() * norm_factor;
+			float im = state[i].imag() * norm_factor;
+			state[i] = complex_t(r, im);
+		}
+		else {
+			state[i] = complex_t(0.0f, 0.0f);
+		}
+	}
+}
+```
+
+La funzione wrapper e' la seguente:
+```cu
+char measure(complex_t* state, const size_t N, const int target_qubit)
+{
+	// measure p_0 for target qubit
+
+	size_t processed = LWS * 16;
+	size_t blockNum = (N + processed - 1) / processed;
+
+	float* h_temp_sums, * d_temp_sums;
+	CHECK_CUDA(cudaMalloc(&d_temp_sums, blockNum * sizeof(float)));
+
+	h_temp_sums = (float*)malloc(blockNum * sizeof(float));
+	if (!h_temp_sums) {
+		fprintf(stderr, "h_temp_sums init failed\n");
+		exit(4);
+	}
+	const size_t shared = LWS * sizeof(float);
+
+	measure_collapse_16_lmem_k <<< blockNum, LWS, shared >>> (state, d_temp_sums, target_qubit, N);
+
+	CHECK_CUDA(cudaMemcpy(h_temp_sums, d_temp_sums, blockNum * sizeof(float), cudaMemcpyDeviceToHost));
+
+	float p_0 = h_temp_sums[0];
+	for (size_t i = 1; i < blockNum; i++)
+		p_0 += h_temp_sums[i];
+
+	float ran = (float)rand() / (float)RAND_MAX;
+	int measured = (ran < p_0) ? 0 : 1;
+
+	cudaFree(d_temp_sums);
+	free(h_temp_sums);
+
+	// renormalize state vector
+
+	float p_measured = (measured == 0) ? p_0 : (1.0 - p_0);
+
+	float norm_factor = 1 / sqrt(p_measured);
+
+	blockNum = (N + LWS - 1) / LWS;
+
+	measure_renormalize_k <<<blockNum, LWS >>> (state, target_qubit, measured, norm_factor, N);
+
+	return '0' + measured;
+
+}
+
+```
 
 ### **Analisi delle Prestazioni**  
 
@@ -194,7 +425,7 @@ Kernel di collasso:
 Kernel di rinormalizzazione:
 
 | Qubit bersaglio | Tempo | Bandwidth| Throughput |
-| :--- | :--- | :--- | :--- | :--- |
+| :--- | :--- | :--- | :--- |
 | 0 | 36.76 ms | 175.3 GB/s | 14.61 GE/s |
 | 1 | 36.75 ms | 175.3 GB/s | 14.61 GE/s |
 | 2 | 28.37 ms | 227.1 GB/s | 18.93 GE/s | 
