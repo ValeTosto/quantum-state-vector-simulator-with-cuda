@@ -8,7 +8,7 @@
 #include "device_launch_parameters.h"
 
 
-#define QBITS 28
+#define QBITS 29
 
 #define LWS 256
 

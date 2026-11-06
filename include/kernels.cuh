@@ -5,8 +5,8 @@
 
 __global__ void init_state_k(complex_t* state, const size_t N);
 
-void init_state_double(complex_t* state, const size_t N);
-void init_state_single(complex_t* state, const size_t N);
+void init_state_with_kernel(complex_t* state, const size_t N);
+void init_state_native(complex_t* state, const size_t N);
 
 // Gate Application Kernels (Embarassingly Parallel)
 
@@ -43,3 +43,4 @@ __global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_s
 __global__ void measure_renormalize_k(complex_t* state, const int target_qubit, const int measured, const float norm_factor, const size_t N);
 
 char measure(complex_t* state, const size_t N, const int target_qubit);
+char measure_time_test(complex_t* state, const size_t N, const int target_qubit, float* collapse_ms, float* renorm_ms);

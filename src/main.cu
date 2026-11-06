@@ -46,21 +46,22 @@ int main()
 
 	CHECK_CUDA(cudaEventRecord(preInit));
 
-	init_state_double(d_state, N);
+	init_state_native(d_state, N);
 
 	CHECK_CUDA(cudaEventRecord(preApply));
 
 	// apply gates to state vector
 
-	/*for (int i = 0; i < QBITS; i++)
-		applyUGate(d_state, N, Gates::H, i);
-	*/
+	for (int i = 0; i < QBITS; i++)
+		apply_u_gate(d_state, N, Gates::H, i);
 
-	apply_u_gate(d_state, N, Gates::H, 0);
+	//apply_u_gate(d_state, N, Gates::H, 0);
 
-	for (int i = 1; i < QBITS; i++)
-		apply_bi_gate(d_state, N, Gates::CNOT, i, i-1);
+	//for (int i = 1; i < QBITS; i++)
+	//apply_bi_gate(d_state, N, Gates::CNOT, 28, 27);
 	
+	//apply_tri_gate(d_state, N, Gates::Toffoli, 0, 27, 28);
+
 	CHECK_CUDA(cudaEventRecord(postApply));
 
 	// copy state vector 
@@ -97,21 +98,25 @@ int main()
 
 	// measure all qubits
 
+	float collapse_ms, renorm_ms;
+
 	srand(time(NULL));
 
-	char measured[QBITS + 1];
+	//char measured[QBITS + 1];
+
+	measure_time_test(d_state, N, 2, &collapse_ms, &renorm_ms);
 
 	CHECK_CUDA(cudaEventRecord(preMeasure));
 
-	for (int i = 0; i < QBITS; i++)
-		measured[i] = measure(d_state, N, i);
+	//for (int i = 0; i < QBITS; i++)
+		//measured[i] = measure(d_state, N, i);
 	
 	CHECK_CUDA(cudaEventRecord(postMeasure));
 
-	measured[QBITS] = '\0';
+	//measured[QBITS] = '\0';
 
 
-	printf("\nmeasure result: %s\n\n", measured);
+	//printf("\nmeasure result: %s\n\n", measured);
 
 	// get time stats
 
@@ -129,7 +134,8 @@ int main()
 	printf("gates: %.4g ms, %.4g GB/s, %.4g GE/s\n", apply_ms, 2 * gates * MEMSIZE_S/apply_ms/1.0e6, 2 * gates * N / apply_ms/1.0e6);
 	printf("copy: %.4g ms, %.4g GB/s, %.4g GE/s\n", copy_ms, MEMSIZE_S / copy_ms / 1.0e6, N / copy_ms / 1.0e6);
 	printf("sum: %.4g ms, %.4g GE/s\n", sum_ms, N / sum_ms / 1.0e6);
-	printf("measure: %.4g ms, %.4g GE/s\n", measure_ms, QBITS * 3 * N / measure_ms / 1.0e6);
+	printf("measure_collapse: %.4g ms, %.4g GE/s\n", collapse_ms, N / collapse_ms / 1.0e6);
+	printf("measure_renorm: %.4g ms, %.4g GB/s, %.4g GE/s\n", renorm_ms, 1.5 * MEMSIZE_S / renorm_ms / 1.0e6, N / renorm_ms / 1.0e6);
 
 	// free memory
 
@@ -137,6 +143,15 @@ int main()
 	if (h_prob) free(h_prob);
 	if (d_state) cudaFree(d_state);
 	if (d_prob) cudaFree(d_prob);
+
+	CHECK_CUDA(cudaEventDestroy(preApply));
+	CHECK_CUDA(cudaEventDestroy(preInit));
+	CHECK_CUDA(cudaEventDestroy(preMeasure));
+	CHECK_CUDA(cudaEventDestroy(preSum));
+	CHECK_CUDA(cudaEventDestroy(postApply));
+	CHECK_CUDA(cudaEventDestroy(postCopy));
+	CHECK_CUDA(cudaEventDestroy(postMeasure));
+	CHECK_CUDA(cudaEventDestroy(postSum));
 
 	return 0;
 }

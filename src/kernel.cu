@@ -171,7 +171,7 @@ __global__ void apply_tri_gate_k(complex_t* state, const size_t octs, const size
 
 __global__ void sq_norm_k(complex_t* state, float* prob, const size_t N)
 {
-	size_t i = blockDim.x * blockIdx.x + threadIdx.x;
+	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= N) return;
 
 	complex_t c = state[i];
@@ -230,7 +230,7 @@ __global__ void sum16_lmem_k(float* prob, const size_t currN)
 
 }
 
-__global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_sums, const int target_qubit, const size_t N)
+__global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_sums, const int target_qubit, const size_t npairs)
 {
 	extern __shared__ float lmem[];
 
@@ -246,7 +246,7 @@ __global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_s
 			if (((i >> target_qubit) & 1) == 0) {
 				float r = state[i].real();
 				float im = state[i].imag();
-				sum += (r * r + im * im);
+				sum += r * r + im * im;
 			}
 		}
 	}
@@ -283,17 +283,17 @@ __global__ void measure_renormalize_k(complex_t* state, const int target_qubit, 
 	}
 }
 
-void init_state_single(complex_t* state, const size_t N)
+void init_state_with_kernel(complex_t* state, const size_t N)
 {
 	size_t blockDim = (N + LWS - 1) / LWS;
 	init_state_k << <blockDim, LWS >> > (state, N);
 }
 
-void init_state_double(complex_t *state, const size_t N)
+void init_state_native(complex_t *state, const size_t N)
 {
 	CHECK_CUDA(cudaMemset(state, 0, N * sizeof(complex_t)));
-
-	init_zero_state_k << <1, 1 >> > (state);
+	complex_t c1 = complex_t(1.0, 0.0);
+	CHECK_CUDA(cudaMemcpy(state, &c1, sizeof(complex_t), cudaMemcpyHostToDevice));
 }
 
 void apply_u_gate(complex_t* state, const size_t N, const complex_t G[2][2], const size_t target_qubit)
@@ -332,8 +332,6 @@ float sum2(float* prob, const size_t N)
 	for (size_t gap = 1; gap < N; gap *= 2) {
 		size_t npairs = (N / gap) / 2;
 		size_t blockNum = (npairs + LWS - 1) / LWS;
-		if (blockNum == 0)
-			blockNum = 1;
 		
 		sum2_k<<<blockNum, LWS>>>(prob, gap, N);
 	}
@@ -349,8 +347,6 @@ float sum16(float* prob, const size_t N)
 	for (size_t gap = 1; gap < N; gap *= 16) {
 		size_t nhex = (N / gap) / 16;
 		size_t blockNum = (nhex + LWS - 1) / LWS;
-		if (blockNum == 0)
-			blockNum = 1;
 
 		sum16_k << <blockNum, LWS >> > (prob, gap, N);
 	}
@@ -370,8 +366,6 @@ float sum16_lmem(float* prob, const size_t N)
 	while (currN > 1) {
 
 		size_t blockNum = (currN + processed - 1) / processed;
-		if (blockNum == 0)
-			blockNum = 1;
 
 		sum16_lmem_k << <blockNum, LWS, shared >> > (prob, currN);
 
@@ -391,8 +385,8 @@ char measure(complex_t* state, const size_t N, const int target_qubit)
 	size_t processed = LWS * 16;
 	size_t blockNum = (N + processed - 1) / processed;
 
-	float* h_temp_sums, *d_temp_sums;
-	CHECK_CUDA( cudaMalloc(&d_temp_sums, blockNum * sizeof(float) ));
+	float* h_temp_sums, * d_temp_sums;
+	CHECK_CUDA(cudaMalloc(&d_temp_sums, blockNum * sizeof(float)));
 
 	h_temp_sums = (float*)malloc(blockNum * sizeof(float));
 	if (!h_temp_sums) {
@@ -402,7 +396,8 @@ char measure(complex_t* state, const size_t N, const int target_qubit)
 
 	const size_t shared = LWS * sizeof(float);
 
-	measure_collapse_16_lmem_k<<< blockNum, LWS, shared >>> (state, d_temp_sums, target_qubit, N);
+
+	measure_collapse_16_lmem_k << < blockNum, LWS, shared >> > (state, d_temp_sums, target_qubit, N);
 
 	CHECK_CUDA(cudaMemcpy(h_temp_sums, d_temp_sums, blockNum * sizeof(float), cudaMemcpyDeviceToHost));
 
@@ -425,6 +420,78 @@ char measure(complex_t* state, const size_t N, const int target_qubit)
 	blockNum = (N + LWS - 1) / LWS;
 
 	measure_renormalize_k << <blockNum, LWS >> > (state, target_qubit, measured, norm_factor, N);
+
+
+	return '0' + measured;
+
+}
+
+char measure_time_test(complex_t* state, const size_t N, const int target_qubit, float* collapse_ms, float* renorm_ms)
+{
+	// measure p_0 for target qubit
+
+	size_t processed = LWS * 16;
+	size_t blockNum = (N + processed - 1) / processed;
+
+	float* h_temp_sums, *d_temp_sums;
+	CHECK_CUDA( cudaMalloc(&d_temp_sums, blockNum * sizeof(float) ));
+
+	h_temp_sums = (float*)malloc(blockNum * sizeof(float));
+	if (!h_temp_sums) {
+		fprintf(stderr, "h_temp_sums init failed\n");
+		exit(4);
+	}
+
+	cudaEvent_t pre_collapse, post_collapse, pre_renorm, post_renorm;
+	CHECK_CUDA(cudaEventCreate(&pre_collapse));
+	CHECK_CUDA(cudaEventCreate(&post_collapse));
+	CHECK_CUDA(cudaEventCreate(&pre_renorm));
+	CHECK_CUDA(cudaEventCreate(&post_renorm));
+
+	const size_t shared = LWS * sizeof(float);
+
+	CHECK_CUDA(cudaEventRecord(pre_collapse));
+
+	measure_collapse_16_lmem_k<<< blockNum, LWS, shared >>> (state, d_temp_sums, target_qubit, N);
+
+	CHECK_CUDA(cudaMemcpy(h_temp_sums, d_temp_sums, blockNum * sizeof(float), cudaMemcpyDeviceToHost));
+
+	float p_0 = h_temp_sums[0];
+	for (size_t i = 1; i < blockNum; i++)
+		p_0 += h_temp_sums[i];
+
+	CHECK_CUDA(cudaEventRecord(post_collapse));
+
+	float ran = (float)rand() / (float)RAND_MAX;
+	int measured = (ran < p_0) ? 0 : 1;
+
+	cudaFree(d_temp_sums);
+	free(h_temp_sums);
+
+	// renormalize state vector
+
+	float p_measured = (measured == 0) ? p_0 : (1.0 - p_0);
+
+	float norm_factor = 1 / sqrt(p_measured);
+
+	blockNum = (N + LWS - 1) / LWS;
+
+	CHECK_CUDA(cudaEventRecord(pre_renorm));
+
+	measure_renormalize_k << <blockNum, LWS >> > (state, target_qubit, measured, norm_factor, N);
+
+	CHECK_CUDA(cudaEventRecord(post_renorm));
+
+	CHECK_CUDA(cudaEventSynchronize(post_collapse));
+	CHECK_CUDA(cudaEventSynchronize(post_renorm));
+
+	CHECK_CUDA(cudaEventElapsedTime(collapse_ms, pre_collapse, post_collapse));
+	CHECK_CUDA(cudaEventElapsedTime(renorm_ms, pre_renorm, post_renorm));
+
+	CHECK_CUDA(cudaEventDestroy(pre_collapse));
+	CHECK_CUDA(cudaEventDestroy(post_collapse));
+	CHECK_CUDA(cudaEventDestroy(pre_renorm));
+	CHECK_CUDA(cudaEventDestroy(post_renorm));
 
 	return '0' + measured;
 
