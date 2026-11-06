@@ -24,41 +24,6 @@ __global__ void apply_u_gate_k(complex_t* state, const size_t pairs, const size_
 
 	if (i >= pairs) return;
 
-	size_t jump = 2 << target_qubit;
-	size_t block_dim = 2 * jump;
-
-	size_t block_index = i / jump;
-
-	size_t offset = i % jump;
-
-	size_t p_0 = block_dim * block_index + offset;
-	size_t p_1 = p_0 + jump;
-
-	// p_0 e p_1 sono i due indici dello state vector su cui il thread lavora.
-	// Cio' che deve fare ora e' moltiplicare
-	// [ state[p_0] ] [ m00  m01 ]
-	// [ state[p_1] ] [ m10  m11 ]
-
-	complex_t v0 = state[p_0];
-	complex_t v1 = state[p_1];
-
-	complex_t new_v0 = v0 * m00 + v1 * m01;
-	complex_t new_v1 = v0 * m10 + v1 * m11;
-
-	state[p_0] = new_v0;
-	state[p_1] = new_v1;
-}
-
-__global__ void apply_u_gate_opt_k(complex_t* state, const size_t pairs, const size_t target_qubit,
-	const complex_t m00, const complex_t m01, const complex_t m10, const complex_t m11)
-{
-	// Applica al qubit [target_qubit] all'interno dello State Vector [state] il gate unario
-	// [ m00  m01 ]
-	// [ m10  m11 ]
-	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (i >= pairs) return;
-
 	size_t mask = (1ULL << target_qubit) - 1;
 
 	size_t lower = i & mask;
@@ -83,7 +48,7 @@ __global__ void apply_u_gate_opt_k(complex_t* state, const size_t pairs, const s
 	state[p_1] = new_v1;
 }
 
-__global__ void apply_bi_gate_opt_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate) {
+__global__ void apply_bi_gate_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate) {
 	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
 
 	if (i >= quarts) return;
@@ -299,7 +264,7 @@ void init_state_native(complex_t *state, const size_t N)
 void apply_u_gate(complex_t* state, const size_t N, const complex_t G[2][2], const size_t target_qubit)
 {
 	size_t blockNum = (N / 2 + LWS - 1) / LWS;
-	apply_u_gate_opt_k << < blockNum, LWS >> > (state, N / 2, target_qubit,
+	apply_u_gate_k << < blockNum, LWS >> > (state, N / 2, target_qubit,
 		G[0][0], G[0][1], G[1][0], G[1][1]);
 }
 
@@ -309,7 +274,7 @@ void apply_bi_gate(complex_t* state, const size_t N, const complex_t G[4][4], co
 	matrix4x4 gate;
 	memcpy(gate.matrix, G, sizeof(complex_t) * 4 * 4);
 
-	apply_bi_gate_opt_k << < blockNum, LWS >> > (state, N / 4, target_qubit, control_qubit, gate);
+	apply_bi_gate_k << < blockNum, LWS >> > (state, N / 4, target_qubit, control_qubit, gate);
 }
 
 void apply_tri_gate(complex_t* state, const size_t N, const complex_t G[8][8], const size_t control_qubit_1, const size_t control_qubit_2, const size_t target_qubit)

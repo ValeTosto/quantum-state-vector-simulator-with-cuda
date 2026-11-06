@@ -12,9 +12,7 @@ void init_state_native(complex_t* state, const size_t N);
 
 __global__ void apply_u_gate_k(complex_t* state, const size_t pairs, const size_t target_qubit,
 	const complex_t m00, const complex_t m01, const complex_t m10, const complex_t m11);
-__global__ void apply_u_gate_opt_k(complex_t* state, const size_t pairs, const size_t target_qubit,
-	const complex_t m00, const complex_t m01, const complex_t m10, const complex_t m11);
-__global__ void apply_bi_gate_opt_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate);
+__global__ void apply_bi_gate_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate);
 __global__ void apply_tri_gate_k(complex_t* state, const size_t octs, const size_t control_qubit_1, const size_t control_qubit_2, const size_t target_qubit, matrix8x8 gate);
 
 void apply_u_gate(complex_t* state, const size_t N, const complex_t G[2][2], const size_t target_qubit);

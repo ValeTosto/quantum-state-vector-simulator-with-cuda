@@ -100,7 +100,7 @@ int main()
 
 	// measure all qubits
 
-	float collapse_ms, renorm_ms;
+	//float collapse_ms, renorm_ms;
 
 	srand(time(NULL));
 
