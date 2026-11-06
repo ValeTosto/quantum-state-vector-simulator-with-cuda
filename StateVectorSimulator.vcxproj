@@ -24,9 +24,6 @@
     <None Include="docs\report.md" />
     <None Include="Makefile" />
   </ItemGroup>
-  <ItemGroup>
-    <Text Include="to_do.txt" />
-  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{EB419962-D480-C2F0-C86F-7EAAF39B77AB}</ProjectGuid>
     <RootNamespace>StateVectorSimulator</RootNamespace>

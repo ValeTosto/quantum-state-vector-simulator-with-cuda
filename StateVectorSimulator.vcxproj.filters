@@ -14,7 +14,4 @@
     <None Include="Makefile" />
     <None Include="docs\report.md" />
   </ItemGroup>
-  <ItemGroup>
-    <Text Include="to_do.txt" />
-  </ItemGroup>
 </Project>
