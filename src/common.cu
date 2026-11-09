@@ -27,16 +27,28 @@ void verify_init(complex_t* state, const size_t N)
 	}
 }
 
-void print_state(const complex_t* state, const size_t N)
+void idx_to_bin_str(size_t idx, const int QBITS, char* buffer) {
+	for (int i = 0; i < QBITS; i++) {
+		
+		buffer[i] = ((idx >> (QBITS - 1 - i)) & 1) ? '1' : '0';
+	}
+	buffer[QBITS] = '\0'; 
+}
+
+void print_state(const complex_t* state, const size_t N, const int QBITS)
 {
+	char bin_str[32];
 	for (size_t i = 0; i < N; i++) {
-		printf("state[%s] = (%f,%f) \n", std::bitset<QBITS>(i).to_string().c_str(), state[i].real(), state[i].imag());
+		idx_to_bin_str(i, QBITS, bin_str);
+		printf("state[%s] = (%f,%f) \n", bin_str, state[i].real(), state[i].imag());
 	}
 }
 
-void print_probs(const float* prob, const size_t N)
+void print_probs(const float* prob, const size_t N, const int QBITS)
 {
+	char bin_str[32];
 	for (size_t i = 0; i < N; i++) {
-		printf("state[%s] = %f \n", std::bitset<QBITS>(i).to_string().c_str(), prob[i]);
+		idx_to_bin_str(i, QBITS, bin_str);
+		printf("state[%s] = %f \n", bin_str, prob[i]);
 	}
 }

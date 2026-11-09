@@ -195,7 +195,7 @@ __global__ void sum16_lmem_k(float* prob, const size_t currN)
 
 }
 
-__global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_sums, const int target_qubit, const size_t npairs)
+__global__ void measure_collapse_16_lmem_k(const complex_t* state, float* temp_sums, const int target_qubit, const size_t N)
 {
 	extern __shared__ float lmem[];
 
@@ -385,7 +385,6 @@ char measure(complex_t* state, const size_t N, const int target_qubit)
 	blockNum = (N + LWS - 1) / LWS;
 
 	measure_renormalize_k << <blockNum, LWS >> > (state, target_qubit, measured, norm_factor, N);
-
 
 	return '0' + measured;
 
