@@ -14,11 +14,11 @@ Vi sono due principi fisici che caratterizzano la meccanica quantistica:
 - L'**entanglement quantistico**, ovvero la capacita' di due particelle quantistiche di trovarsi in correlazione, per cui un'informazione sullo stato di una automaticamente ci informa anche riguardo lo stato dell'altra.
 
 Se la computazione classica lavora con il bit, ovvero informazioni di natura binaria, il QC lavora con l'informazione quantistica: il **qubit**.
-Un qubit $\ket\psi$ e' un'unita' di informazione che vale `0` o `1` con una certa probabilita'. Per eseguire operazioni sui qubit, si utilizzano **operatori** (unari, binari, ternari, ...) che ne alterano le ampiezze di probabilita'. Infine, su un qubit si puo' effettuare una **misurazione**, ovvero un'operazione che ne rompe la sovrapposizione e lo costringe a *collassare* in 0 o in 1, secondo le rispettive ampiezze.
+Un qubit $|\psi\rangle$ e' un'unita' di informazione che vale `0` o `1` con una certa probabilita'. Per eseguire operazioni sui qubit, si utilizzano **operatori** (unari, binari, ternari, ...) che ne alterano le ampiezze di probabilita'. Infine, su un qubit si puo' effettuare una **misurazione**, ovvero un'operazione che ne rompe la sovrapposizione e lo costringe a *collassare* in 0 o in 1, secondo le rispettive ampiezze.
 La meccanica quantistica viene modellata perfettamente tramite l'**algebra lineare**:  
-- Un qubit e' un *vettore unitario* di ampiezze complesse, combinazione lineare dei suoi possibili stati: $$\ket\psi = \alpha\ket0 + \beta\ket1$$, con $\alpha,\beta\in\mathbb{C}$. Un registro quantistico e' anch'esso un vettore, ottenibile calcolando il prodotto vettoriale dei singoli qubit che contiene: $n$ qubit vengono rappresentati tramite un vettore di dimensione $N=2^n$.
+- Un qubit e' un *vettore unitario* di ampiezze complesse, combinazione lineare dei suoi possibili stati: $$|\psi\rangle = \alpha|0\rangle + \beta|1\rangle$$, con $\alpha,\beta\in\mathbb{C}$. Un registro quantistico e' anch'esso un vettore, ottenibile calcolando il prodotto vettoriale dei singoli qubit che contiene: $n$ qubit vengono rappresentati tramite un vettore di dimensione $N=2^n$.
 - Un operatore logico quantistico e' una *matrice unitaria* $U$. Un operatore $n$-ario e' una matrice quadrata di dimensioni $2^n\times2^n$. L'applicazione di un operatore sui rispettivi qubit viene calcolata tramite un semplice prodotto riga-colonna;
-- La misurazione e' una *proiezione* del vettore di stato su una base scelta: in computazione quantistica la base di misurazione corrisponde alla base computazionale { $\ket0, \ket1$}.
+- La misurazione e' una *proiezione* del vettore di stato su una base scelta: in computazione quantistica la base di misurazione corrisponde alla base computazionale { $|0\rangle, |1\rangle$}.
 
 # **Implementazione**
 
@@ -29,7 +29,7 @@ L'approccio *State Vector* per la simulazione quantistica consiste nel mantenere
 Questo approccio si scontra rapidamente con i limiti hardware dei calcolatori classici. Poiché un registro di $n$ qubit richiede un vettore di $2^n$ ampiezze complesse, la memoria e il tempo di calcolo crescono in modo esponenziale. 
 Utilizzando numeri floating point (4 byte per la parte reale e 4 byte per quella immaginaria):
 - Un registro di 10 qubit richiede $2^{10} \times 8$ B $\approx 8$ KB.
-- Un registro di **20 qubit richiede $2^{20} \times 8$ B $\approx 8$ MB.
+- Un registro di 20 qubit richiede $2^{20} \times 8$ B $\approx 8$ MB.
 - Un registro di 30 qubit richiede $2^{30} \times 8$ B $\approx 8$ GB.
 
 Oltre i 30 qubit, la simulazione State Vector diventa proibitiva per i normali calcolatori. La natura dell'approccio, che prevede la manipolazione di un unico pesante vettore, si dimostra subito adeguata all'accelerazione parallela tramite GPU. 
@@ -38,19 +38,19 @@ La VRAM da 8GB della GTX 1080 ammette un limite massimo di 29 qubit.
 ## **Flusso di esecuzione**
 
 Il simulatore consiste in una pipeline sequenziale in cui l'host costruisce il circuito, mentre il device esegue soltanto i calcoli sul vettore di stato. Per evitare il bottleneck relativo all'uso del bus di sistema, il vettore viene allocato e modificato sempre e solo nella VRAM del device. Il flusso di esecuzione del programma e' il seguente:  
-1. **Inizializzazione**: viene allocato il vettore di 2$^N$ numeri complessi (coppie di float), con lo stato di partenza $\ket0^{\otimes n}$;  
+1. **Inizializzazione**: viene allocato il vettore di 2$^N$ numeri complessi (coppie di float), con lo stato di partenza $|0\rangle^{\otimes n}$;  
 2. **Applicazione dei gate**: corrisponde alla costruzione del circuito. La CPU chiama i kernel relativi all'applicazione di un gate specifico, mentre il device aggiorna in VRAM il vettore di stato opportunamente. L'idea e' quella di introdurre la possibilita' di implementare un set di gate universale, composto da (H, X, CNOT, Toffoli);
 3. **Misurazione**: A questo punto i qubit del vettore di stato possono essere misurati e il risultato trasferito su host.
 
 In aggiunta, come metodo di verifica della correttezza dei calcoli, in qualunque momento sara' possibile calcolare la norma del vettore di stato e verificare che sia costantemente unitaria.
 
 # **Analisi dei kernel**
-Tutti i test di performance sono stati valutati su:
--$LWS = 256$  
--$QBITS = 29$
+Tutti i test di performance sono stati valutati su:  
+- $LWS = 256$  
+- $QBITS = 29$
 # **Inizializzazione**
-Per inizializzare il vettore di stato, l'host chiama la funzione `cudaMalloc` e alloca $2^{QBITS}$ coppie di float in VRAM. La certezza assoluta che la grandezza della griglia di lancio sia una potenza di 2 non va sottovalutata: sarebbe tecnicamente possibile evitare la presenza di controlli relativi all'accesso out of bounds all'interno dei kernel.  
-Il vettore di partenza $\ket0^{\otimes N}$ corrisponde al vettore di lunghezza $N$, dove ogni componente vale 0 tranne la prima che vale 1. Per l'implementazione sono stati valutati due approcci:  
+Per inizializzare il vettore di stato, l'host chiama la funzione `cudaMalloc` e alloca $2^{QBITS}$ coppie di float in VRAM. La certezza assoluta che la grandezza della griglia di lancio sia una potenza di 2 non va sottovalutata: sarebbe tecnicamente possibile evitare la presenza di controlli relativi all'accesso out of bounds all'interno dei kernel, se si presuppone che il simulatore non operi con un numero basso di QBIT.  
+Il vettore di partenza $|0\rangle^{\otimes N}$ corrisponde al vettore di lunghezza $N$, dove ogni componente vale 0 tranne la prima che vale 1. Per l'implementazione sono stati valutati due approcci:  
 1. Approccio a singolo Kernel: viene lasciato un unico kernel, dove ogni work item imposta a 0 l'elemento corrispondente ad eccezione per quello in cui `global_id==0`, che lo imposta ad 1;
 ```cu
 __global__ void init_state_k(complex_t* state, const size_t N)
@@ -148,6 +148,7 @@ Analogamente al caso unario, l'id globale viene modificato con l'aggiunta di bit
 
 Calcolati i quattro indirizzi, il work item legge le relative ampiezze, moltiplica il vettore ottenuto con la matrice $4x4$ che rappresenta il gate, e sovrascrive i risultati. 
 
+```cu
 __global__ void apply_bi_gate_k(complex_t* state, const size_t quarts, const size_t target_qubit, const size_t control_qubit, matrix4x4 gate) {
 	size_t i = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -180,6 +181,7 @@ __global__ void apply_bi_gate_k(complex_t* state, const size_t quarts, const siz
 	state[_10_idx] = new_v10;
 	state[_11_idx] = new_v11;
 }
+```
 
 ### **Analisi delle Prestazioni**
 
@@ -291,7 +293,7 @@ Per confrontare l'efficienza del kernel sono stati implementate anche le version
 
 # **Misurazione**
 
-L'ultima funzionalita' necessaria per avere un simulatore utilizzabile e' la misurazione di un qubit. Secondo i postulati della meccanica quantistica, la misurazione provoca un collasso del vettore di stato, azzerando totalmente le ampiezze relative agli stati incompatibili con il risultato misurato e richiedendo una successiva rinormalizzazione delle ampiezze rimaste integre. Calcolare la probabilita' di collasso in $\ket0$ o in $\ket1$ per il singolo qubit bersaglio a partire dall'intero vettore di stato, bisogna sommare tutte le ampiezze di probabilita' per cui quel qubit assume valore 0. 
+L'ultima funzionalita' necessaria per avere un simulatore utilizzabile e' la misurazione di un qubit. Secondo i postulati della meccanica quantistica, la misurazione provoca un collasso del vettore di stato, azzerando totalmente le ampiezze relative agli stati incompatibili con il risultato misurato e richiedendo una successiva rinormalizzazione delle ampiezze rimaste integre. Calcolare la probabilita' di collasso in $|0\rangle$ o in $|1\rangle$ per il singolo qubit bersaglio a partire dall'intero vettore di stato, bisogna sommare tutte le ampiezze di probabilita' per cui quel qubit assume valore 0. 
 
 L'operazione è stata implementata con un approccio ibrido in tre fasi:
 1. Calcolo delle probabilita' di collasso $p_0$ e $p_1$: si tratta di una somma di $N/2$ elementi (non imbarazzantemente parallelizzabile);
@@ -432,11 +434,8 @@ Kernel di rinormalizzazione:
 | 14 | 27.98 ms | 230.2 GB/s | 19.18 GE/s |
 | 28 | 27.18 ms | 237 GB/s | 19.75 GE/s |
 
-Quando si misurano esattamente i qubit 0 e 1, le performance peggiorano notevolmente, specialmente per quanto riguarda il kernel di collasso. Ancora una volta questo comportamento e' dovuto al pattern di posizionamento delle ampiezze: per valori cosi' bassi, gli elementi a cui i kernel accedono si alternano con frequenza molto alta, generando warp divergence. Se nel caso del secondo kernel si tratta di un comportamento inevitabile, potrebbe essere possibile rimuovere il branching dal kernel di collasso: invece di lanciare N thread, se ne lanciano $N/2$, e si modifica il global_id in modo tale che ogni thread acceda esclusivamente agli indirizzi corretti. Questo puo' essere facilmente ottenuto inserendo un bit 0 nell'id in posizione target, ma cio' va gestito in contemporanea alle logiche di accesso della vettorizzazione implementata.
+Quando si misurano esattamente i qubit 0 e 1, le performance peggiorano notevolmente, specialmente per quanto riguarda il kernel di collasso. Ancora una volta questo comportamento e' dovuto al pattern di posizionamento delle ampiezze: per valori cosi' bassi, gli elementi a cui i kernel accedono si alternano con frequenza molto alta, generando warp divergence.  
+Se nel caso del secondo kernel si tratta di un comportamento inevitabile, potrebbe essere possibile rimuovere il branching dal kernel di collasso: invece di lanciare $N$ thread, se ne lanciano $N/2$, e si modifica il global_id in modo tale che ogni thread acceda esclusivamente agli elementi necessari. Questo puo' essere ottenuto inserendo un bit 0 nell'id in posizione target, ma cio' andrebbe gestito in contemporanea alle logiche di accesso della vettorizzazione implementata *(non ho implementato questa versione modificata, per ora ho preferito soltanto evidenziare il caso particolare e proporre una soluzione)*.
 
 # **Conclusioni**
 I dati raccolti confermano che la simulazione quantistica State Vector è un problema computazionale memory bound a causa dell'aumento esponenziale dello spazio richiesto e dei tempi di esecuzione al crescere di $n$. Le alte capacita' di calcolo della GPU non sono sfruttabili per spingersi oltre i 29 qubit. Ad ogni modo, la simulazione quantistica si conferma un problema molto adatto alla parallelizzazione, viste le altissime performance misurate da ogni kernel della pipeline di calcolo.  
-
-
-
-
